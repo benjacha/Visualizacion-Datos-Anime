@@ -1,4 +1,12 @@
-# Fuentes de Datos
+## Integrantes
+
+| Integrante | Rol |
+|-----------|-----------|
+| Benjamin Acosta    | 202273549-k    |
+| Benjamin Araos    | 202273637-2    |
+| Tomás Cano    | 202273559-7    |
+
+## Fuentes de Datos
 
 ## Desarrollo Benjamín Acosta:
 
