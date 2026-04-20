@@ -9,7 +9,8 @@
 ## Fuentes de Datos
 
 - ### Desarrollo Benjamín Acosta:
-
+  - **Link a la fuente:** https://www.kaggle.com/datasets/brunobacelardc/myanimelist-top-1000-anime/data
+  - **Descripcion:** "This dataset contains data concerning the top 2000 anime in the MyAnimeList website. It aims to help answer questions with regards to popularity of anime, given their scores, popularity ranks, studios, etcetera."
 - ### Desarrollo Benjamín Araos:
   - **Link a la fuente:** https://www.kaggle.com/datasets/azathoth42/myanimelist?select=AnimeList.csv
   - **Descripcion:** "contains list of anime, with title, title synonyms, genre, studio, licencor, producer, duration, rating, score, airing date, episodes, source (manga, light novel etc.) and many other important data about individual anime providing sufficient information about trends in time about important aspects of anime. Rank is in float format in csv, but it contains only integer value. This is due to NaN values and their representation in pandas."
