@@ -1,180 +1,156 @@
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
+import numpy as np
 
-# -------------------------------
-# 1. Cargar datasets
-# -------------------------------
-file1 = "C:\\Users\\Benjamin\\Desktop\\trabajos\\visualizacion de datos\\tarea 1\\mal_top2000_anime.csv"
-file2 = "C:\\Users\\Benjamin\\Desktop\\trabajos\\visualizacion de datos\\tarea 1\\AnimeList.csv"
-file3 = "C:\\Users\\Benjamin\\Desktop\\trabajos\\visualizacion de datos\\tarea 1\\Anime_ratings.csv"
+# ---------------------------------------------------------
+# 1. Carga y Estandarización (Limpieza de Repetidos)
+# ---------------------------------------------------------
 
-def try_read(path):
-    try:
-        return pd.read_csv(path)
-    except:
-        return pd.DataFrame()
+# Cargar archivos
+df_st = pd.read_csv("mal_top2000_anime.csv")    
+df_rt = pd.read_csv("Anime_ratings.csv")         
+df_pl = pd.read_csv("AnimeList.csv")             
 
-df1 = try_read(file1)
-df2 = try_read(file2)
-df3 = try_read(file3)
+# Renombrar columnas a estándar 'Title'
+df_st = df_st.rename(columns={'Name': 'Title'})
+df_pl = df_pl.rename(columns={'title': 'Title'})
 
-# -------------------------------
-# 2. Normalizar columnas
-# -------------------------------
-def standardize(df):
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
+# Estandarizar textos y eliminar nulos en títulos
+for df in [df_st, df_rt, df_pl]:
+    df['Title'] = df['Title'].astype(str).str.strip().str.lower()
+    # ELIMINAR REPETIDOS EN CADA ARCHIVO: Nos quedamos con la primera aparición de cada título
+    df.drop_duplicates(subset=['Title'], keep='first', inplace=True)
 
-    df["title"] = None
-    df["genres"] = None
-    df["studio"] = None
-    df["popularity"] = np.nan
+# Cruce de datos (Merge)
+df_master = pd.merge(df_st, df_rt, on='Title', how='inner')
+df_master = pd.merge(df_master, df_pl, on='Title', how='inner')
 
-    # título
-    for c in df.columns:
-        if c.lower() in ["title", "name", "anime_title"]:
-            df["title"] = df[c]
-            break
+# ELIMINAR REPETIDOS TRAS EL MERGE: Por si el cruce generó filas duplicadas
+df_master.drop_duplicates(subset=['Title'], inplace=True)
 
-    # género
-    for c in df.columns:
-        if c.lower() in ["genres", "genre"]:
-            df["genres"] = df[c].astype(str)
-            break
+# ---------------------------------------------------------
+# 2. Preparación de Niveles (Limpieza de Corchetes y Nodos)
+# ---------------------------------------------------------
 
-    # estudio
-    for c in df.columns:
-        if c.lower() in ["studio", "studios", "producer"]:
-            df["studio"] = df[c].astype(str)
-            break
+# Función para limpiar ['ACTION'] -> ACTION
+def limpiar_texto_sucio(col):
+    # Elimina corchetes [ ], comillas ' y espacios
+    return col.astype(str).str.replace(r"[\[\]']", "", regex=True).str.split(',').str[0].str.strip()
 
-    # popularidad
-    for c in df.columns:
-        if c.lower() in ["members", "popularity", "scored_by"]:
-            df["popularity"] = pd.to_numeric(df[c], errors="coerce")
-            break
+df_master['Main_Studio'] = limpiar_texto_sucio(df_master['Studio'])
+df_master['Main_Genre'] = limpiar_texto_sucio(df_master['Genres_x'])
 
-    return df[["title","genres","studio","popularity"]]
+# Definir niveles de Dominancia (Percentiles)
+q3 = df_master['members'].quantile(0.75)
+q1 = df_master['members'].quantile(0.25)
 
-s1 = standardize(df1)
-s2 = standardize(df2)
-s3 = standardize(df3)
+def categorizar_dominancia(m):
+    if m >= q3: return "ALTO IMPACTO (DOMINANTE)"
+    if m >= q1: return "IMPACTO MEDIO"
+    return "NICHO / BAJO IMPACTO"
 
-df = pd.concat([s1, s2, s3], ignore_index=True)
+df_master['Dominancia'] = df_master['members'].apply(categorizar_dominancia)
 
-df["genres"] = df["genres"].fillna("")
-df["studio"] = df["studio"].fillna("Unknown")
+# ---------------------------------------------------------
+# 3. Creación del Diagrama de Sankey
+# ---------------------------------------------------------
 
-# -------------------------------
-# 3. Expandir géneros (rápido)
-# -------------------------------
-df["genre"] = df["genres"].str.split(r"[,\|;]+")
-df_exp = df.explode("genre")
+def crear_visualizacion_sankey(df):
+    # Seleccionamos los 10 estudios y 10 géneros con más presencia
+    top_studios = df['Main_Studio'].value_counts().head(10).index.tolist()
+    top_genres = df['Main_Genre'].value_counts().head(10).index.tolist()
+    niveles_exito = [
+        "ALTO IMPACTO (DOMINANTE)",
+        "IMPACTO MEDIO",
+        "NICHO / BAJO IMPACTO"
+    ]
 
-df_exp["genre"] = df_exp["genre"].str.strip()
-df_exp["genre"] = df_exp["genre"].replace("", "Unknown")
+    # Mapear todos los nombres a índices numéricos para Plotly
+    nodos = top_studios + top_genres + niveles_exito
+    mapa_nodos = {nombre: i for i, nombre in enumerate(nodos)}
 
-# -------------------------------
-# 1. TOP géneros + "Otros"
-# -------------------------------
-top_n = 6
-top_genres = df_exp["genre"].value_counts().head(top_n).index
+    fuentes, destinos, valores = [], [], []
 
-df_exp["genre_grouped"] = df_exp["genre"].apply(
-    lambda x: x if x in top_genres else "Otros géneros"
-)
+    # FLUJO A: De Estudio a Género (Capacidad de Producción)
+    for s in top_studios:
+        for g in top_genres:
+            cantidad = len(df[(df['Main_Studio'] == s) & (df['Main_Genre'] == g)])
+            if cantidad > 0:
+                fuentes.append(mapa_nodos[s])
+                destinos.append(mapa_nodos[g])
+                valores.append(cantidad)
 
-# -------------------------------
-# 2. TOP estudios
-# -------------------------------
-top_studios = df_exp["studio"].value_counts().head(8).index
+    # FLUJO B: De Género a Dominancia (Efectividad del contenido)
+    for g in top_genres:
+        for ex in niveles_exito:
+            cantidad = len(df[(df['Main_Genre'] == g) & (df['Dominancia'] == ex)])
+            if cantidad > 0:
+                fuentes.append(mapa_nodos[g])
+                destinos.append(mapa_nodos[ex])
+                valores.append(cantidad)
 
-df_sankey = df_exp[
-    df_exp["studio"].isin(top_studios)
-].copy()
-
-# -------------------------------
-# 3. Niveles de popularidad
-# -------------------------------
-pop_q = df_sankey["popularity"].dropna()
-
-low = pop_q.quantile(0.33)
-high = pop_q.quantile(0.66)
-
-def nivel_pop(p):
-    if pd.isna(p):
-        return None
-    elif p <= low:
-        return "Bajo"
-    elif p <= high:
-        return "Medio"
-    else:
-        return "Alto"
-
-df_sankey["pop_level"] = df_sankey["popularity"].apply(nivel_pop)
-
-# ❗ eliminar filas inválidas (esto evita el círculo raro)
-df_sankey = df_sankey.dropna(subset=["genre_grouped", "studio", "pop_level"])
-
-# -------------------------------
-# 4. Crear conexiones
-# -------------------------------
-g_s = df_sankey.groupby(["genre_grouped","studio"]).size().reset_index(name="value")
-s_p = df_sankey.groupby(["studio","pop_level"]).size().reset_index(name="value")
-
-# -------------------------------
-# 5. Crear nodos
-# -------------------------------
-genres_nodes = list(df_sankey["genre_grouped"].unique())
-studio_nodes = list(top_studios)
-pop_nodes = ["Bajo","Medio","Alto"]
-
-nodes = genres_nodes + studio_nodes + pop_nodes
-node_dict = {name:i for i,name in enumerate(nodes)}
-
-# -------------------------------
-# 6. Links
-# -------------------------------
-source = []
-target = []
-value = []
-
-# Género → Estudio
-for _, row in g_s.iterrows():
-    if row["genre_grouped"] != row["studio"]:  # evitar loops raros
-        source.append(node_dict[row["genre_grouped"]])
-        target.append(node_dict[row["studio"]])
-        value.append(row["value"])
-
-# Estudio → Popularidad
-for _, row in s_p.iterrows():
-    source.append(node_dict[row["studio"]])
-    target.append(node_dict[row["pop_level"]])
-    value.append(row["value"])
-
-# -------------------------------
-# 7. Sankey limpio
-# -------------------------------
-fig = go.Figure(data=[go.Sankey(
-    arrangement="snap",  # 🔥 evita deformaciones raras
-    node=dict(
-        pad=20,
-        thickness=18,
-        line=dict(color="black", width=0.3),
-        label=nodes
-    ),
-    link=dict(
-        source=source,
-        target=target,
-        value=value,
-        color="rgba(150,150,150,0.4)"
+    # Configuración estética del gráfico
+    # 🎨 colores de nodos
+    node_colors = (
+        ["#1199ED"] * len(top_studios) +   
+        ["#11DEED"] * len(top_genres) +    
+        ["#11EDB2"] * len(niveles_exito)
     )
-)])
 
-fig.update_layout(
-    title="Flujo: Género → Estudio → Nivel de Popularidad",
-    font_size=12
-)
+    # 🔧 función
+    def hex_to_rgba(hex_color, alpha=0.3):
+        hex_color = hex_color.lstrip("#")
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
 
-fig.show()
+    # 🎨 colores de links
+    link_colors = [
+        hex_to_rgba(node_colors[s], 0.3)
+        for s in fuentes
+    ]
+
+    # posiciones X (solo para separar columnas)
+    x = (
+        [0.1] * len(top_studios) +   # estudios
+        [0.5] * len(top_genres) +    # géneros
+        [0.9] * len(niveles_exito)   # impacto
+    )
+
+    # posiciones Y (solo impactos fijos)
+    y = (
+        [None] * len(top_studios) +
+        [None] * len(top_genres) +
+        [0.1, 0.5, 0.9]  # 🔥 ALTO, MEDIO, BAJO
+    )
+
+    fig = go.Figure(data=[go.Sankey(
+        arrangement="fixed",
+
+        node=dict(
+            pad=15,
+            thickness=25,
+            line=dict(color="black", width=0.5),
+            label=[n.upper() for n in nodos],
+            color=node_colors,
+            x=x,
+            y=y
+        ),
+
+        link=dict(
+            source=fuentes,
+            target=destinos,
+            value=valores,
+            color=link_colors
+        )
+    )])
+    fig.update_layout(
+        title_text="<b>MAPA DE DOMINANCIA INDUSTRIAL</b><br>Trayectoria desde la Casa Productora hasta el Éxito de Mercado",
+        font_size=11, width=1200, height=800
+    )
+    
+    fig.show()
+    # fig.write_html("dominancia_sankey.html") # Descomenta para guardar como archivo
+
+crear_visualizacion_sankey(df_master)
