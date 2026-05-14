@@ -1,10 +1,10 @@
 ## Integrantes
 
-| Integrante | Rol |
-|-----------|-----------|
-| Benjamin Acosta    | 202273549-k    |
-| Benjamin Araos    | 202273637-2    |
-| Tomás Cano    | 202273559-7    |
+| Integrante | Rol | Carpeta de Códigos
+|-----------|-----------|-----------|
+| Benjamin Acosta    | 202273549-k    | Codigo1 |
+| Benjamin Araos    | 202273637-2    | Codigo2 |
+| Tomás Cano    | 202273559-7    | Codigo3 |
 
 ## Fuentes de Datos
 
