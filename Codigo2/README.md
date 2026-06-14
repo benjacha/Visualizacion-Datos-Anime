@@ -5,3 +5,6 @@
 
 ## Tarea 2:
 - Realizada en flourish
+
+## Tarea 3:
+- Realizada en MyMaps
